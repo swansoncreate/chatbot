@@ -11,11 +11,12 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 ai_client = AsyncClient()
 
+
 def get_photo_url():
-    # Правильный формат: /prompt/{описание}?seed={число}
     seed = random.randint(1, 999999)
-    prompt = "girl, portrait, realistic, 20 years old"
-    return f"https://image.pollinations.ai/prompt/{prompt}?seed={seed}&nologo=true"
+    # Кодируем текст, чтобы не было ошибок в URL
+    prompt = urllib.parse.quote("pretty girl portrait realistic")
+    return f"https://image.pollinations.ai{prompt}?seed={seed}&width=512&height=512&nologo=true"
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -29,12 +30,19 @@ async def search(message: types.Message):
         [types.InlineKeyboardButton(text="❌ Дальше", callback_data="search")],
         [types.InlineKeyboardButton(text="✅ Общаться", callback_data="start_chat")]
     ])
-    # Отправляем фото по ссылке
-    await message.answer_photo(
-        photo=get_photo_url(), 
-        caption="Нашли анкету!", 
-        reply_markup=inline_kb
-    )
+    
+    url = get_photo_url()
+    try:
+        # Пытаемся отправить фото
+        await message.answer_photo(
+            photo=url, 
+            caption="Нашли анкету!", 
+            reply_markup=inline_kb
+        )
+    except Exception as e:
+        # Если Telegram не смог скачать фото, отправляем просто текст
+        print(f"Ошибка загрузки фото: {e}")
+        await message.answer("Не удалось загрузить фото, но анкета найдена!", reply_markup=inline_kb)
 
 @dp.callback_query(F.data == "search")
 async def next_search(callback: types.CallbackQuery):
