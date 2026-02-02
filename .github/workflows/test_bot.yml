@@ -25,3 +25,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }} # Использует секрет репозитория
         run: python main.py
+
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: true  # Это убьет прошлую копию сама
