@@ -4,6 +4,7 @@ import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from g4f.client import AsyncClient  # Используем асинхронный клиент
+import urllib.parse
 
 TOKEN = os.getenv("BOT_TOKEN")
 
