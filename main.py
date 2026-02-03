@@ -71,7 +71,8 @@ async def search(message: types.Message):
     seed = random.randint(1, 10**9)
     
     prompt_text = f"{app}, {person['hobby']}, realistic"
-    photo_url = f"https://image.pollinations.ai{urllib.parse.quote(prompt_text)}?seed={seed}&width=512&height=512&nologo=true"
+    photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
+    print(photo_url)
     
     active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
     
