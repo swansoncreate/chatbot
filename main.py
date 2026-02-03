@@ -17,7 +17,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
-# --- РАБОТА С БД ---
+# --- РАБОТА С БАЗОЙ ДАННЫХ ---
 DB_PATH = "bot_data.db"
 
 def db_query(query, params=(), fetchone=False, fetchall=False):
@@ -29,25 +29,49 @@ def db_query(query, params=(), fetchone=False, fetchall=False):
         conn.commit()
 
 def init_db():
+    # Таблица чатов (внешность, сид, доверие)
     db_query("""CREATE TABLE IF NOT EXISTS chats 
                 (user_id INTEGER, girl_name TEXT, appearance TEXT, seed INTEGER, 
                 system_prompt TEXT, history TEXT, is_active INTEGER, trust_level INTEGER)""")
+    # Таблица фактов (память)
+    db_query("CREATE TABLE IF NOT EXISTS user_facts (user_id INTEGER, fact_key TEXT, fact_value TEXT)")
 
 # --- ЛОГИКА ГЕНЕРАЦИИ ---
 
-APPEARANCE_TYPES = [
+APPEARANCES = [
     "scandinavian beauty, ash blonde hair, blue eyes, light freckles",
     "mediterranean girl, wavy dark hair, olive skin, deep brown eyes",
     "slavic girl, straight chestnut hair, green eyes, high cheekbones",
-    "asian style, silky black hair, soft features, dark eyes"
+    "latin style, curly black hair, tan skin, dark eyes"
 ]
 
 def get_time_context():
     hour = datetime.now().hour
-    if 5 <= hour < 12: return "Сейчас утро. Ты только проснулась, сонная и милая."
-    if 12 <= hour < 18: return "Сейчас день. Ты занята делами, отвечаешь бодро."
-    if 18 <= hour < 23: return "Сейчас вечер. Ты отдыхаешь, настроена на общение."
+    if 5 <= hour < 12: return "Сейчас утро, ты только проснулась, сонная и милая."
+    if 12 <= hour < 18: return "Сейчас день, ты занимаешься делами, отвечаешь бодро."
+    if 18 <= hour < 23: return "Сейчас вечер, ты отдыхаешь, настроена на общение."
     return "Сейчас глубокая ночь. Ты хочешь спать, общение может быть личным."
+
+def create_typo(text):
+    words = text.split()
+    if len(words) < 4: return None, None
+    idx = random.randint(0, len(words) - 1)
+    word = words[idx]
+    if len(word) > 4:
+        i = random.randint(1, len(word) - 2)
+        typo_word = word[:i] + word[i+1] + word[i] + word[i+2:]
+        return text.replace(word, typo_word), word
+    return None, None
+
+async def extract_facts(user_id, text):
+    """Скрытый анализ фактов о пользователе"""
+    prompt = f"Извлеки факты о юзере (имя, хобби, питомцы, работа) из текста: '{text}'. Верни JSON {{'ключ': 'значение'}} или {{}}."
+    try:
+        res = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role": "user", "content": prompt}])
+        facts = json.loads(res.choices[0].message.content)
+        for k, v in facts.items():
+            db_query("INSERT OR REPLACE INTO user_facts VALUES (?, ?, ?)", (user_id, k, v))
+    except: pass
 
 # --- ОБРАБОТЧИКИ ---
 
@@ -55,72 +79,70 @@ def get_time_context():
 async def cmd_start(message: types.Message):
     kb = ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🔍 Найти пару")],
-        [KeyboardButton(text="📇 Мои контакты"), KeyboardButton(text="❤️ Статус")]
+        [KeyboardButton(text="📇 Контакты"), KeyboardButton(text="❤️ Статус")]
     ], resize_keyboard=True)
-    await message.answer("Бот запущен. Ищи собеседниц и развивай отношения!", reply_markup=kb)
+    await message.answer("Бот-симулятор запущен! Ищи анкеты и общайся.", reply_markup=kb)
+
+active_search_cache = {}
 
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
-    name = random.choice(["Алина", "Маша", "Лера", "Кристина", "Соня", "Даша"])
-    appearance = random.choice(APPEARANCE_TYPES)
+    name = random.choice(["Алина", "Кристина", "Маша", "Лера", "Соня", "Юля"])
+    app = random.choice(APPEARANCES)
     seed = random.randint(1, 10**9)
     
-    # Генерация первого фото (прогулка)
-    photo_url = f"https://image.pollinations.ai_{appearance.replace(' ', '_')}_walking_outside?seed={seed}&width=1024&height=1024&model=flux"
+    photo_url = f"https://image.pollinations.ai_{app.replace(' ', '_')}?seed={seed}&model=flux"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"✅ Общаться с {name}", callback_data=f"setup_{name}_{seed}")],
-        [InlineKeyboardButton(text="👎 Дальше", callback_data="next_search")]
+        [InlineKeyboardButton(text=f"✅ Начать чат с {name}", callback_data=f"set_{name}_{seed}")],
+        [InlineKeyboardButton(text="👎 Дальше", callback_data="next")]
     ])
     
-    # Сохраняем временные данные внешности в callback_data (или через доп. логику, тут упростим)
-    active_search_desc[message.from_user.id] = {"name": name, "app": appearance, "seed": seed}
-    await message.answer_photo(photo=photo_url, caption=f"{name}. Описание: {appearance}.", reply_markup=kb)
+    active_search_cache[message.from_user.id] = {"name": name, "app": app, "seed": seed}
+    await message.answer_photo(photo=photo_url, caption=f"Это {name}. Она ждет знакомства!", reply_markup=kb)
 
-active_search_desc = {}
+@dp.callback_query(F.data == "next")
+async def next_callback(c: types.CallbackQuery):
+    await c.message.delete()
+    await search(c.message)
 
-@dp.callback_query(F.data == "next_search")
-async def next_search(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await search(callback.message)
-
-@dp.callback_query(F.data.startswith("setup_"))
-async def setup_chat(callback: types.CallbackQuery):
-    uid = callback.from_user.id
-    data = active_search_desc.get(uid)
+@dp.callback_query(F.data.startswith("set_"))
+async def set_chat(c: types.CallbackQuery):
+    uid = c.from_user.id
+    data = active_search_cache.get(uid)
     if not data: return
     
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (uid,))
-    db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 10)", 
+    db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 15)", 
              (uid, data['name'], data['app'], data['seed'], 
-              f"Ты {data['name']}. Внешность: {data['app']}.", json.dumps([])))
+              f"Ты {data['name']}. Твоя внешность: {data['app']}.", json.dumps([])))
     
-    await callback.message.answer(f"Ты начал чат с {data['name']}! Напиши ей.")
-    await callback.answer()
+    await c.message.answer(f"Чат с {data['name']} открыт! Напиши ей что-нибудь.")
+    await c.answer()
 
 @dp.message(F.text == "❤️ Статус")
 async def check_status(message: types.Message):
     res = db_query("SELECT girl_name, trust_level FROM chats WHERE user_id = ? AND is_active = 1", (message.from_user.id,), fetchone=True)
     if res:
-        await message.answer(f"Твой статус с {res[0]}: {res[1]}/100 ❤️")
+        await message.answer(f"Твой уровень доверия с {res[0]}: {res[1]}/100 ❤️")
     else:
-        await message.answer("Сначала найди собеседницу!")
+        await message.answer("Сначала выбери собеседницу в поиске!")
 
-@dp.message(F.text == "📇 Мои контакты")
+@dp.message(F.text == "📇 Контакты")
 async def list_contacts(message: types.Message):
     girls = db_query("SELECT DISTINCT girl_name FROM chats WHERE user_id = ?", (message.from_user.id,), fetchall=True)
     if not girls: return await message.answer("Список пуст.")
-    btns = [[InlineKeyboardButton(text=f"💬 {n[0]}", callback_data=f"switch_{n[0]}")] for n in girls]
-    await message.answer("Выбери, кому написать:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+    btns = [[InlineKeyboardButton(text=f"💬 {n[0]}", callback_data=f"sw_{n[0]}")] for n in girls]
+    await message.answer("Выбери чат:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
 
-@dp.callback_query(F.data.startswith("switch_"))
-async def switch_chat(callback: types.CallbackQuery):
-    name = callback.data.split("_")[1]
-    uid = callback.from_user.id
+@dp.callback_query(F.data.startswith("sw_"))
+async def switch_chat(c: types.CallbackQuery):
+    name = c.data.split("_")[1]
+    uid = c.from_user.id
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (uid,))
     db_query("UPDATE chats SET is_active = 1 WHERE user_id = ? AND girl_name = ?", (uid, name))
-    await callback.message.answer(f"Переключено на {name}.")
-    await callback.answer()
+    await c.message.answer(f"Переключено на {name}.")
+    await c.answer()
 
 @dp.message()
 async def talk(message: types.Message):
@@ -131,18 +153,24 @@ async def talk(message: types.Message):
     name, app, seed, sys, hist_raw, trust = res
     history = json.loads(hist_raw)
 
-    # 1. Анализ отношения
-    analysis = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role": "user", "content": f"User said: '{message.text}'. If friendly +5, if mean -10. Return only number."}])
-    try: change = int(''.join(filter(lambda x: x in "-1234567890", analysis.choices[0].message.content)))
+    # Запускаем память и анализ отношения
+    asyncio.create_task(extract_facts(uid, message.text))
+    
+    facts = db_query("SELECT fact_key, fact_value FROM user_facts WHERE user_id = ?", (uid,), fetchall=True)
+    facts_str = ", ".join([f"{f[0]}: {f[1]}" for f in facts])
+
+    # Анализ изменения доверия
+    try:
+        analysis = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role": "user", "content": f"User: '{message.text}'. If nice +5, if rude -10. Number only."}])
+        change = int(''.join(filter(lambda x: x in "-0123456789", analysis.choices[0].message.content)))
     except: change = 1
     
     new_trust = max(0, min(100, trust + change))
     db_query("UPDATE chats SET trust_level = ? WHERE user_id = ? AND girl_name = ? AND is_active = 1", (new_trust, uid, name))
 
-    # 2. Ответ ИИ
-    time_ctx = get_time_context()
-    mood = "холодная" if new_trust < 30 else "дружелюбная" if new_trust < 70 else "влюбленная"
-    prompt = f"{sys} {time_ctx} Твое отношение: {mood} (доверие {new_trust}/100)."
+    # Ответ ИИ
+    mood = "сдержанная" if new_trust < 30 else "игривая" if new_trust < 75 else "влюбленная"
+    prompt = f"{sys} {get_time_context()} Твое отношение: {mood} (доверие {new_trust}/100). Ты помнишь о нем: {facts_str}. Пиши кратко."
 
     await bot.send_chat_action(message.chat.id, "typing")
     response = await groq_client.chat.completions.create(
@@ -151,16 +179,22 @@ async def talk(message: types.Message):
     )
     answer = response.choices[0].message.content
 
-    # Пауза и отправка
+    # Пауза и опечатки
     await asyncio.sleep(min(max(1.5, len(answer)*0.04), 5))
-    await message.answer(answer)
+    typo_text, correct = create_typo(answer)
+    if typo_text and random.random() < 0.15:
+        await message.answer(typo_text)
+        await asyncio.sleep(1)
+        await message.answer(f"{correct}*")
+    else:
+        await message.answer(answer)
 
-    # 3. Генерация фото при росте доверия (шанс 20%)
+    # Фото при росте доверия
     if new_trust > trust and random.random() < 0.2:
-        loc = "cozy_bedroom_selfie" if new_trust > 70 else "sitting_in_cafe"
-        photo_url = f"https://image.pollinations.ai_{app.replace(' ', '_')}_{loc}?seed={seed}&width=1024&height=1024&model=flux"
+        loc = "home_selfie" if new_trust > 70 else "cafe_portrait"
+        photo_url = f"https://image.pollinations.ai_{app.replace(' ', '_')}_{loc}?seed={seed}&model=flux"
         await asyncio.sleep(2)
-        await message.answer_photo(photo_url, caption="Смотри, что скинуть решила... 😊")
+        await message.answer_photo(photo_url, caption="Просто селфи для тебя... ✨")
 
     history.append({"role": "user", "content": message.text})
     history.append({"role": "assistant", "content": answer})
