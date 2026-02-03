@@ -77,7 +77,7 @@ async def search(message: types.Message):
     encoded_prompt = urllib.parse.quote(prompt_text)
     photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true&model=flux"
     
-    kb = InlineKeyboardMarkup(inline_keyboard=}", callback_data=f"set_{seed}")],
+    kb = InlineKeyboardMarkup(inline_keyboard=, callback_data=f"set_{seed}")],
     ])
     
     global active_search_cache
