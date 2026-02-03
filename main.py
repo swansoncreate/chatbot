@@ -26,13 +26,15 @@ def db_query(sql, params=(), fetchone=False, commit=False):
         return cursor.fetchone() if fetchone else cursor.fetchall()
 
 def init_db():
+    # Создаем таблицу сразу со всеми нужными полями
     db_query('''CREATE TABLE IF NOT EXISTS girls 
                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                  user_id INTEGER, 
                  name_info TEXT, 
                  context TEXT, 
-                 is_active INTEGER DEFAULT 0)''', commit=True)
-    # Временная таблица для хранения последней сгенерированной анкеты
+                 is_active INTEGER DEFAULT 0,
+                 affinity INTEGER DEFAULT 0)''', commit=True)
+    
     db_query('''CREATE TABLE IF NOT EXISTS temp_profiles 
                 (user_id INTEGER PRIMARY KEY, profile TEXT)''', commit=True)
 
@@ -137,26 +139,74 @@ async def stop_chat(message: types.Message):
 @dp.message()
 async def chat_handler(message: types.Message):
     uid = message.from_user.id
-    active_chat = db_query("SELECT id, context FROM girls WHERE user_id = ? AND is_active = 1", (uid,), fetchone=True)
+    active_chat = db_query("SELECT id, context, affinity, name_info FROM girls WHERE user_id = ? AND is_active = 1", (uid,), fetchone=True)
     
     if not active_chat:
-        return await message.answer("У вас нет активного чата. Найдите кого-нибудь или выберите из списка.")
+        return await message.answer("У вас нет активного чата.")
 
-    chat_id, context_raw = active_chat
+    chat_id, context_raw, affinity, profile = active_chat
     context = json.loads(context_raw)
-    context.append({"role": "user", "content": message.text})
     
     try:
         await bot.send_chat_action(message.chat.id, "typing")
+
+        # ЭТАП 1: Оценка влияния сообщения на affinity
+        # Создаем быстрый запрос для анализа (не добавляем его в историю)
+        rank_res = client.chat.completions.create(
+            model="llama-3.1-8b-instant", # Используем модель поменьше/побыстрее для оценки
+            messages=[{"role": "system", "content": "Оцени сообщение пользователя. Если оно приятное, интересное или вежливое, верни '+2'. Если грубое или скучное, верни '-2'. Если нейтральное, верни '0'. Верни ТОЛЬКО ЧИСЛО."},
+                      {"role": "user", "content": message.text}]
+        )
+        try:
+            delta = int(rank_res.choices[0].message.content.strip())
+            new_affinity = max(0, min(100, affinity + delta)) # Ограничиваем от 0 до 100
+        except:
+            new_affinity = affinity
+
+        # ЭТАП 2: Генерация ответа с учетом новой близости
+        system_prompt = get_persona_prompt(profile, new_affinity)
+        
+        # Обновляем системное сообщение в начале контекста
+        if context and context[0]["role"] == "system":
+            context[0]["content"] = system_prompt
+        else:
+            context.insert(0, {"role": "system", "content": system_prompt})
+
+        context.append({"role": "user", "content": message.text})
+        
         res = client.chat.completions.create(model=MODEL_NAME, messages=context)
         ans = res.choices[0].message.content
         context.append({"role": "assistant", "content": ans})
         
-        db_query("UPDATE girls SET context = ? WHERE id = ?", (json.dumps(context), chat_id), commit=True)
+        # Сохраняем всё в базу
+        db_query("UPDATE girls SET context = ?, affinity = ? WHERE id = ?", 
+                 (json.dumps(context), new_affinity, chat_id), commit=True)
+        
         await message.answer(ans)
+        
+        # (Опционально) Показываем юзеру, что лед тронулся
+        if new_affinity != affinity:
+            # Можно добавить индикатор в конце сообщения, если нужно
+            # await message.answer(f"📈 Отношения: {new_affinity}/100")
+            pass
+
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-        await message.answer("Ой, я отвлеклась... Можешь повторить?")
+        await message.answer("Что-то связь барахлит... Повтори?")
+
+def get_persona_prompt(profile, affinity):
+    base = f"Ты — {profile}. Твой текущий уровень близости с пользователем: {affinity}/100."
+    
+    if affinity < 15:
+        mood = "Ты холодна, отвечаешь сухо и только по делу. Ты почти не доверяешь собеседнику."
+    elif affinity < 40:
+        mood = "Ты дружелюбна, начинаешь доверять, можешь немного пошутить."
+    elif affinity < 70:
+        mood = "Ты проявляешь симпатию, флиртуешь, задаешь личные вопросы и делишься своими мыслями."
+    else:
+        mood = "Ты глубоко привязана или влюблена. Ты очень откровенна, ласкова и доверяешь любые секреты."
+        
+    return f"{base} {mood} Пиши кратко, в стиле мессенджера, без лишнего официоза."
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
