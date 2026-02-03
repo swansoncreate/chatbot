@@ -6,6 +6,7 @@ import requests
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from urllib.parse import quote
 
 # === НАСТРОЙКА ЛОГИРОВАНИЯ ===
 logging.basicConfig(
@@ -35,18 +36,23 @@ def get_main_kb():
 def get_ai_profile():
     seed = random.randint(1, 999999)
     
-    # Текстовый промпт для Pollinations
-    text_prompt = "Придумай анкету девушки для чата: Имя, Возраст (18-25), Хобби. Пиши кратко на русском."
-    text_url = f"https://text.pollinations.ai{text_prompt}?seed={seed}"
+    # Текст промпта
+    raw_prompt = "Придумай анкету девушки для чата: Имя, Возраст (15-40), Хобби. Пиши кратко на русском."
     
-    # Пытаемся получить текст
+    # Экранируем кириллицу и добавляем пропущенный слэш / после домена
+    encoded_prompt = quote(raw_prompt)
+    text_url = f"https://text.pollinations.ai/pompt/{encoded_prompt}?seed={seed}"
+    
+    # Логируем URL для проверки, если снова упадет
+    logger.info(f"Запрос к тексту: {text_url}")
+    
     response = requests.get(text_url, timeout=15)
-    response.raise_for_status() # Вызовет ошибку при плохом ответе (404, 500 и т.д.)
+    response.raise_for_status()
     profile_text = response.text.strip()
 
-    # Ссылка на фото
-    image_prompt = "high quality realistic portrait of a beautiful young woman, cinematic lighting"
-    image_url = f"https://image.pollinations.ai{image_prompt}?seed={seed}&width=512&height=512&nologo=true"
+    # Для фото тоже экранируем промпт на всякий случай
+    image_raw = "high quality realistic portrait of a beautiful young woman, cinematic lighting"
+    image_url = f"https://image.pollinations.ai/pompt/{quote(image_raw)}?seed={seed}&width=512&height=512&nologo=true"
     
     return image_url, profile_text
 
