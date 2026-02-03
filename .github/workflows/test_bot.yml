@@ -18,21 +18,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install aiogram groq
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Run Bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python main.py
-
-      - name: Restore Database Cache
-        uses: actions/cache@v4
-        with:
-          path: bot_data.db
-          key: ${{ runner.os }}-bot-db-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-bot-db-
 
       - name: Run Bot
         env:
