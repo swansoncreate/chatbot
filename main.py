@@ -26,13 +26,17 @@ def get_main_kb():
 
 # === ЛОГИКА ИИ ===
 def generate_profile_and_persona():
-    """Генерирует личность через Groq"""
-    chat_completion = client.chat.completions.create(
-        messages=[{"role": "user", "content": "Придумай краткую анкету девушки для чата (Имя, Возраст, Хобби) и опиши её характер в одном предложении."}],
-        model="llama3-8b-8192",
-    )
-    full_text = chat_completion.choices[0].message.content
-    return full_text
+    """Генерирует личность через Groq с актуальной моделью"""
+    try:
+        chat_completion = client.chat.completions.create(
+            # Используем актуальную модель Llama 3.1 или 3.3
+            model="llama-3.1-8b-instant", 
+            messages=[{"role": "user", "content": "Придумай анкету девушки для чата: Имя, Возраст, Хобби. Пиши кратко на русском."}],
+        )
+        return chat_completion.choices.message.content
+    except Exception as e:
+        logger.error(f"Ошибка генерации профиля: {e}")
+        return "Анна, 22 года. Люблю общение и музыку."
 
 # === ОБРАБОТЧИКИ ===
 @dp.message(Command("start"))
@@ -55,28 +59,25 @@ async def chat_handler(message: types.Message):
     user_id = message.from_user.id
     
     if user_id not in user_contexts:
-        await message.answer("Сначала нажми 'Найти собеседницу'", reply_markup=get_main_kb())
+        await message.answer("Сначала нажми '🔍 Найти собеседницу'", reply_markup=get_main_kb())
         return
 
-    # Добавляем сообщение юзера в историю
     user_contexts[user_id].append({"role": "user", "content": message.text})
 
     try:
-        # Запрос к Groq
+        # Также меняем модель здесь
         response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
             messages=user_contexts[user_id],
-            model="llama3-8b-8192",
+            temperature=0.7, # Добавляет немного "человечности"
         )
-        ai_reply = response.choices[0].message.content
-        
-        # Сохраняем ответ ИИ в историю
+        ai_reply = response.choices.message.content
         user_contexts[user_id].append({"role": "assistant", "content": ai_reply})
-        
         await message.answer(ai_reply)
         
     except Exception as e:
-        logger.error(f"Groq Error: {e}")
-        await message.answer("⚠️ Собеседница отвлеклась, попробуй еще раз.")
+        logger.error(f"Groq Chat Error: {e}")
+        await message.answer("💬 Собеседница задумалась... попробуй написать еще раз.")
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
