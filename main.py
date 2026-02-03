@@ -66,39 +66,47 @@ async def cmd_start(message: types.Message):
 
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
-    person = await generate_ai_personality()
-    app = random.choice(APPEARANCES)
-    seed = random.randint(1, 10**9)
-    
-    # Чистим промпт от лишнего
-    clean_hobby = person['hobby'].replace("'", "").replace('"', "")
-    prompt_text = f"{app} {clean_hobby} high quality realistic face"
-    encoded_prompt = urllib.parse.quote(prompt_text)
-    
-    # Чистая ссылка без лишних знаков в конце
-    photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Начать общение", callback_data=f"set_{seed}")],
-        [InlineKeyboardButton(text="⏭ Следующая", callback_data="next")]
-    ])
-    
-    active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
-    
     try:
-        # Используем URLInputFile вместо прямой строки
-        image = URLInputFile(photo_url)
+        person = await generate_ai_personality()
+        app = random.choice(APPEARANCES)
+        seed = random.randint(1, 10**9)
+        
+        # 1. Логируем, что пришло от ИИ
+        print(f"DEBUG: Личность: {person}")
+
+        # Формируем и чистим промпт
+        clean_hobby = person.get('hobby', 'music').replace("'", "").replace('"', "")
+        prompt_text = f"{app} {clean_hobby} high quality realistic face"
+        encoded_prompt = urllib.parse.quote(prompt_text)
+        
+        # 2. Собираем финальную ссылку
+        photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
+        
+        # ВАЖНО: Это сообщение появится в логах GitHub Actions
+        print(f"DEBUG: Пытаюсь отправить URL: {photo_url}")
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Начать общение", callback_data=f"set_{seed}")],
+            [InlineKeyboardButton(text="⏭ Следующая", callback_data="next")]
+        ])
+        
+        active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
+
+        # 3. Пробуем отправить
         await message.answer_photo(
-            photo=image, 
+            photo=photo_url, 
             caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", 
             reply_markup=kb
         )
     except Exception as e:
-        print(f"Ошибка фото: {e}")
-        # Если ссылка все равно плохая — просто шлем текст
+        # Логируем ошибку целиком
+        print(f"КРИТИЧЕСКАЯ ОШИБКА В SEARCH: {e}")
+        import traceback
+        print(traceback.format_exc())
+        
         await message.answer(
-            f"✨ {person['name']}, {person['age']} лет\n(Фото не прогрузилось)\nХобби: {person['hobby']}", 
-            reply_markup=kb
+            f"✨ {person.get('name', 'Девушка')}\n⚠️ Ошибка фото: {type(e).__name__}\nПроверь логи консоли!", 
+            reply_markup=kb if 'kb' in locals() else None
         )
 
 @dp.callback_query(F.data == "next")
