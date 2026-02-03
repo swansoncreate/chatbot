@@ -53,7 +53,7 @@ def get_chat_kb():
 def get_action_inline():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💌 Написать ей", callback_data="start_chat"),
-         InlineKeyboardButton(text="⏭ Следующая", callback_data="search_handler")]
+         InlineKeyboardButton(text="⏭ Следующая", callback_data="next_profile")]
     ])
 
 # === ЛОГИКА ИИ ===
