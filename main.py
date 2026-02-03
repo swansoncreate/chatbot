@@ -41,19 +41,23 @@ def get_chat_kb():
         [InlineKeyboardButton(text="❌ Выйти", callback_data="exit_chat"),
          InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_chat")]
     ])
-
+    
 async def generate_ai_personality():
     salt = random.randint(1, 9999)
-    prompt = "Create a unique female personality. Return ONLY JSON: {'name': 'Name', 'age': 20, 'hobby': 'Short description'}"
+    # Просим JSON с русским описанием и английским промптом для фото
+    prompt = ("Create a unique female personality. "
+              "Return ONLY JSON: {'name': 'Имя', 'age': 22, 'hobby': 'Хобби на русском', "
+              "'photo_style': 'detailed english prompt for image generation based on hobby'}")
     try:
         res = await groq_client.chat.completions.create(
             model="llama3-8b-8192", 
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        return json.loads(res.choices.message.content)
-    except:
-        return {"name": f"Мария #{salt}", "age": 22, "hobby": "Музыка"}
+        return json.loads(res.choices[0].message.content)
+    except Exception as e:
+        print(f"Ошибка Groq: {e}")
+        return {"name": "Анна", "age": 21, "hobby": "Фотография", "photo_style": "girl with a camera"}
 
 # --- ОБРАБОТЧИКИ ---
 @dp.message(Command("start"))
@@ -71,20 +75,18 @@ async def search(message: types.Message):
         app = random.choice(APPEARANCES)
         seed = random.randint(1, 10**9)
         
-        # 1. Логируем, что пришло от ИИ
-        print(f"DEBUG: Личность: {person}")
-
-        # Формируем и чистим промпт
-        clean_hobby = person.get('hobby', 'music').replace("'", "").replace('"', "")
-        prompt_text = f"{app} {clean_hobby} high quality realistic face"
-        encoded_prompt = urllib.parse.quote(prompt_text)
+        # Собираем промпт: внешность + стиль от ИИ (на английском)
+        # Очищаем от кавычек на всякий случай
+        clean_style = person.get('photo_style', 'beautiful face').replace("'", "").replace('"', "")
+        full_prompt = f"{app}, {clean_style}, high quality, realistic face"
         
-        # 2. Собираем финальную ссылку
+        encoded_prompt = urllib.parse.quote(full_prompt)
+        
+        # ЭТАЛОННАЯ ССЫЛКА
         photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
         
-        # ВАЖНО: Это сообщение появится в логах GitHub Actions
-        print(f"DEBUG: Пытаюсь отправить URL: {photo_url}")
-        
+        print(f"DEBUG URL: {photo_url}") # Проверка в GitHub Actions
+
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Начать общение", callback_data=f"set_{seed}")],
             [InlineKeyboardButton(text="⏭ Следующая", callback_data="next")]
@@ -92,22 +94,15 @@ async def search(message: types.Message):
         
         active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
 
-        # 3. Пробуем отправить
         await message.answer_photo(
             photo=photo_url, 
             caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", 
             reply_markup=kb
         )
     except Exception as e:
-        # Логируем ошибку целиком
-        print(f"КРИТИЧЕСКАЯ ОШИБКА В SEARCH: {e}")
-        import traceback
-        print(traceback.format_exc())
-        
-        await message.answer(
-            f"✨ {person.get('name', 'Девушка')}\n⚠️ Ошибка фото: {type(e).__name__}\nПроверь логи консоли!", 
-            reply_markup=kb if 'kb' in locals() else None
-        )
+        print(f"Ошибка в поиске: {e}")
+        # Если фото упало, хотя бы пришлем текст
+        await message.answer(f"✨ {person['name']} (фото загружается...)\nХобби: {person['hobby']}", reply_markup=kb)
 
 @dp.callback_query(F.data == "next")
 async def next_girl(c: types.CallbackQuery):
