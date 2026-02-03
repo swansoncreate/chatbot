@@ -10,8 +10,8 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 from groq import AsyncGroq
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "ВАШ_ТОКЕН"
-GROQ_API_KEY = "ВАШ_КЛЮЧ"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
