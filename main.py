@@ -45,7 +45,7 @@ APPEARANCES = [
 
 async def generate_ai_personality():
     """Генерирует уникальную личность через ИИ Groq"""
-    prompt = "Придумай случайную девушку: Имя, Возраст (18-40), Хобби. Верни ТОЛЬКО JSON: {'name': '..', 'age': .., 'hobby': '..'}"
+    prompt = "Придумай случайную девушку: Имя, Возраст (15-40), Хобби. Верни ТОЛЬКО JSON: {'name': '..', 'age': .., 'hobby': '..'}"
     try:
         res = await groq_client.chat.completions.create(
             model="llama3-8b-8192", 
@@ -80,7 +80,7 @@ async def search(message: types.Message):
     app = random.choice(APPEARANCES)
     seed = random.randint(1, 10**9)
     
-    photo_url = f"https://image.pollinations.ai_{app.replace(' ', '_')}_age_{person['age']}?seed={seed}&model=flux"
+    photo_url = f"https://image.pollinations.ai_{app.replace(' ', '_')}_age_{person['age']}?seed={seed}&model=zimage"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✅ Начать чат с {person['name']}", callback_data=f"set_{seed}")],
