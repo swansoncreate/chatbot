@@ -3,6 +3,7 @@ import random
 import sqlite3
 import json
 import os
+import urllib.parse
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -35,27 +36,26 @@ def init_db():
 
 # --- ЛОГИКА ---
 
-APPEARANCES = ["scandinavian blonde", "latin brunette", "asian beauty", "slavic girl"]
+APPEARANCES = ["scandinavian blonde woman", "latin brunette woman", "asian cute girl", "slavic beautiful woman"]
 
 async def generate_ai_personality():
-    # Добавляем случайное число в промпт для разнообразия имен
     salt = random.randint(1, 9999)
-    prompt = f"Придумай случайную уникальную личность (ID {salt}): Имя, Возраст (18-35), Хобби. Верни JSON: {{'name': '..', 'age': .., 'hobby': '..'}}"
+    prompt = f"Create a unique female personality (ID {salt}). Return ONLY JSON: {{'name': 'Name', 'age': 20, 'hobby': 'Short description'}}"
     try:
         res = await groq_client.chat.completions.create(
             model="llama3-8b-8192", 
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            temperature=1.0 # Максимальный разброс имен
+            temperature=1.0
         )
         return json.loads(res.choices[0].message.content)
     except:
-        return {"name": f"Девушка {salt}", "age": 21, "hobby": "путешествия"}
+        return {"name": f"Мария {salt}", "age": 22, "hobby": "Музыка и кино"}
 
 def get_chat_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Завершить чат", callback_data="exit_chat")],
-        [InlineKeyboardButton(text="🗑️ Удалить диалог", callback_data="delete_chat")]
+        [InlineKeyboardButton(text="❌ Завершить", callback_data="exit_chat"),
+         InlineKeyboardButton(text="🗑️ Удалить", callback_data="delete_chat")]
     ])
 
 # --- ОБРАБОТЧИКИ ---
@@ -66,9 +66,7 @@ async def cmd_start(message: types.Message):
         [KeyboardButton(text="🔍 Найти пару")],
         [KeyboardButton(text="📇 Контакты"), KeyboardButton(text="❤️ Статус")]
     ], resize_keyboard=True)
-    await message.answer("Симулятор запущен! Ищи анкеты.", reply_markup=kb)
-
-active_search_cache = {}
+    await message.answer("Симулятор запущен!", reply_markup=kb)
 
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
@@ -76,16 +74,24 @@ async def search(message: types.Message):
     app = random.choice(APPEARANCES)
     seed = random.randint(1, 10**9)
     
-    # Исправленный URL фото
-    photo_url = f"https://image.pollinations.ai{app.replace(' ', '_')}_model_face_age_{person['age']}?seed={seed}"
+    # БЕЗОПАСНОЕ ФОРМИРОВАНИЕ URL
+    prompt_text = f"{app}, {person['hobby']}, high quality, realistic face"
+    encoded_prompt = urllib.parse.quote(prompt_text)
+    photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true&model=flux"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✅ Начать чат с {person['name']}", callback_data=f"set_{seed}")],
         [InlineKeyboardButton(text="👎 Дальше", callback_data="next")]
     ])
     
+    global active_search_cache
+    if 'active_search_cache' not in globals(): active_search_cache = {}
     active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
-    await message.answer_photo(photo=photo_url, caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", reply_markup=kb)
+    
+    try:
+        await message.answer_photo(photo=photo_url, caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", reply_markup=kb)
+    except:
+        await message.answer(f"✨ {person['name']}, {person['age']} лет\n(Фото временно недоступно)\nХобби: {person['hobby']}", reply_markup=kb)
 
 @dp.callback_query(F.data == "next")
 async def next_callback(c: types.CallbackQuery):
@@ -99,23 +105,23 @@ async def set_chat(c: types.CallbackQuery):
     if not data: return
     
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (uid,))
-    sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Твое хобби: {data['hobby']}."
+    sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Ты общаешься с парнем. Будь краткой и реалистичной."
     db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 15)", 
              (uid, data['name'], data['app'], data['seed'], sys_prompt, json.dumps([])))
     
-    await c.message.answer(f"Чат с {data['name']} открыт! Напиши ей что-нибудь.", reply_markup=get_chat_kb())
+    await c.message.answer(f"Чат с {data['name']} открыт!", reply_markup=get_chat_kb())
     await c.answer()
 
 @dp.callback_query(F.data == "exit_chat")
 async def exit_chat(c: types.CallbackQuery):
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (c.from_user.id,))
-    await c.message.answer("Ты вышел из чата в главное меню.")
+    await c.message.answer("Вы вышли в главное меню.")
     await c.answer()
 
 @dp.callback_query(F.data == "delete_chat")
 async def delete_chat(c: types.CallbackQuery):
     db_query("DELETE FROM chats WHERE user_id = ? AND is_active = 1", (c.from_user.id,))
-    await c.message.answer("Диалог полностью удален.")
+    await c.message.answer("Чат удален.")
     await c.answer()
 
 @dp.message(F.text == "❤️ Статус")
@@ -126,17 +132,17 @@ async def check_status(message: types.Message):
 
 @dp.message(F.text == "📇 Контакты")
 async def list_contacts(message: types.Message):
-    girls = db_query("SELECT DISTINCT girl_name FROM chats WHERE user_id = ?", (message.from_user.id,), fetchall=True)
-    if not girls: return await message.answer("Список контактов пуст.")
+    girls = db_query("SELECT girl_name FROM chats WHERE user_id = ?", (message.from_user.id,), fetchall=True)
+    if not girls: return await message.answer("Контактов нет.")
     btns = [[InlineKeyboardButton(text=f"💬 {n[0]}", callback_data=f"sw_{n[0]}")] for n in girls]
-    await message.answer("Твои знакомства:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+    await message.answer("Твои девушки:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
 
 @dp.callback_query(F.data.startswith("sw_"))
 async def switch_chat(c: types.CallbackQuery):
     name = c.data.split("_")[1]
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (c.from_user.id,))
     db_query("UPDATE chats SET is_active = 1 WHERE user_id = ? AND girl_name = ?", (c.from_user.id, name))
-    await c.message.answer(f"Теперь ты в чате с {name}.", reply_markup=get_chat_kb())
+    await c.message.answer(f"Переключено на {name}.", reply_markup=get_chat_kb())
     await c.answer()
 
 @dp.message()
@@ -148,30 +154,20 @@ async def talk(message: types.Message):
     name, app, seed, sys, hist_raw, trust = res
     history = json.loads(hist_raw)
 
-    # Доверие
     try:
-        ans = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role":"user","content":f"User message: '{message.text}'. If friendly return +5, if rude -10. Return digit only."}])
-        change = int(''.join(filter(lambda x: x in "-0123456789", ans.choices[0].message.content)))
-    except: change = 1
-    
-    new_trust = max(0, min(100, trust + change))
-    db_query("UPDATE chats SET trust_level = ? WHERE user_id = ? AND girl_name = ?", (new_trust, uid, name))
-
-    mood = "сдержанная" if new_trust < 40 else "игривая" if new_trust < 80 else "влюбленная"
-    prompt = f"{sys} Твой настрой: {mood}. Пиши как живая девушка, кратко."
-
-    await bot.send_chat_action(message.chat.id, "typing")
-    response = await groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile", 
-        messages=[{"role":"system","content":prompt}] + history[-6:] + [{"role":"user","content":message.text}]
-    )
-    answer = response.choices[0].message.content
-
-    history.append({"role":"user","content":message.text})
-    history.append({"role":"assistant","content":answer})
-    db_query("UPDATE chats SET history = ? WHERE user_id = ? AND girl_name = ?", (json.dumps(history[-10:]), uid, name))
-
-    await message.answer(answer, reply_markup=get_chat_kb())
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
+            messages=[{"role":"system","content":sys}] + history[-6:] + [{"role":"user","content":message.text}]
+        )
+        answer = response.choices[0].message.content
+        
+        history.append({"role":"user","content":message.text})
+        history.append({"role":"assistant","content":answer})
+        db_query("UPDATE chats SET history = ? WHERE user_id = ? AND girl_name = ?", (json.dumps(history[-10:]), uid, name))
+        
+        await message.answer(answer, reply_markup=get_chat_kb())
+    except:
+        await message.answer("Извини, я отвлеклась. Повтори еще раз?")
 
 async def main():
     init_db()
