@@ -65,12 +65,18 @@ async def start_chat_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     profile = user_contexts.get(user_id, {}).get("temp_profile", "Собеседница")
     
-    # Создаем контекст для Groq
+    # Мощная инструкция для живого общения
     user_contexts[user_id] = [
-        {"role": "system", "content": f"Ты девушка из чата. Твоя анкета: {profile}. Отвечай кратко."},
+        {"role": "system", "content": (
+            f"Ты — девушка по имени {profile}. Твоя задача — общаться в анонимном чате. "
+            "Пиши как современная девушка: используй разговорный русский язык, "
+            "можешь использовать смайлики, пиши кратко и естественно. "
+            "НЕ пиши как официальный ассистент. НЕ используй книжные обороты. "
+            "Будь дружелюбной и немного кокетливой."
+        )},
     ]
     
-    await callback.message.answer("✨ Ты начал чат! Можешь писать первое сообщение.", reply_markup=get_chat_kb())
+    await callback.message.answer("✨ Ты начал чат! Напиши ей что-нибудь приветственное.", reply_markup=get_chat_kb())
     await callback.answer()
 
 # Кнопка "Следующая" (Inline)
@@ -91,23 +97,24 @@ async def stop_chat(message: types.Message):
 @dp.message()
 async def chat_handler(message: types.Message):
     user_id = message.from_user.id
-    
-    # Проверяем, в чате ли юзер (в user_contexts должен быть список сообщений)
     if user_id not in user_contexts or isinstance(user_contexts[user_id], dict):
-        return # Если просто пишет текст без активного чата — игнорим
+        return
 
     user_contexts[user_id].append({"role": "user", "content": message.text})
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.1-70b-versatile", # Модель 70b НАМНОГО умнее и лучше знает русский
             messages=user_contexts[user_id],
+            temperature=0.8, # Увеличиваем креативность
+            top_p=0.9,       # Делаем речь более разнообразной
         )
-        ai_reply = response.choices[0].message.content
+        ai_reply = response.choices.message.content
         user_contexts[user_id].append({"role": "assistant", "content": ai_reply})
         await message.answer(ai_reply)
     except Exception as e:
-        await message.answer("⚠️ Ошибка связи.")
+        logger.error(f"Error: {e}")
+        await message.answer("⚠️ Связь прервалась, попробуй еще раз.")
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
