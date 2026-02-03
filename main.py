@@ -27,9 +27,9 @@ def get_ai_profile():
     seed = random.randint(1, 999999)
     
     # 1. ТЕКСТ (добавили явный слэш перед prompt)
-    prompt_text = "Generate dating profile: Name, Age (18-25), Hobby. In Russian language."
+    prompt_text = "Generate dating profile: Name, Age (15-40), Hobby. In Russian language."
     # ВАЖНО: слэш / после .ai/ ОБЯЗАТЕЛЕН
-    text_url = f"https://text.pollinations.ai{quote(prompt_text)}?seed={seed}&model=openai"
+    text_url = f"https://text.pollinations.ai/{quote(prompt_text)}?seed={seed}&model=openai"
     
     try:
         logger.info(f"Запрос текста: {text_url}")
@@ -41,7 +41,7 @@ def get_ai_profile():
     # 2. ФОТО (упростили промпт для стабильности URL)
     image_desc = "beautiful young woman portrait"
     # Ссылка должна быть максимально простой для Telegram
-    image_url = f"https://image.pollinations.ai{quote(image_desc)}?seed={seed}&width=512&height=512&nologo=true"
+    image_url = f"https://image.pollinations.ai/{quote(image_desc)}?seed={seed}&width=512&height=512&nologo=true"
     
     logger.info(f"Запрос фото: {image_url}")
     return image_url, profile_text
