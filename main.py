@@ -45,8 +45,7 @@ def generate_profile():
             messages=[{"role": "user", "content": "Придумай имя, возраст (18-25) и хобби для девушки. Одной короткой строкой на русском."}],
         )
         profile_text = chat_completion.choices[0].message.content
-        image_url = f"https://image.pollinations.ai{seed}"
-        return profile_text, image_url
+        return profile_text
     except Exception as e:
         logger.error(f"Ошибка ИИ (профиль): {e}")
         return "Мария, 21 год. Люблю приключения.", None
@@ -58,17 +57,10 @@ async def start_cmd(message: types.Message):
 
 @dp.message(F.text == "🔍 Найти собеседницу")
 async def search_handler(message: types.Message):
-    profile, photo_url = generate_profile()
+    profile =  generate_profile()
     user_contexts[message.from_user.id] = {"temp_profile": profile}
     
-    if photo_url:
-        await message.answer_photo(
-            photo=photo_url,
-            caption=f"👤 **Анкета:**\n\n{profile}",
-            reply_markup=get_action_inline()
-        )
-    else:
-        await message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
+    await message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
 
 @dp.callback_query(F.data == "start_chat")
 async def start_chat(callback: types.CallbackQuery):
