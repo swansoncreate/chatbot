@@ -7,32 +7,37 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
-# === НАСТРОЙКИ ===
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# === ЛОГИ ===
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токены из Secrets GitHub
+# ТОКЕНЫ
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-
-if not BOT_TOKEN or not GROQ_KEY:
-    exit("ОШИБКА: Проверь BOT_TOKEN и GROQ_API_KEY в Secrets!")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 client = Groq(api_key=GROQ_KEY)
 
-# Хранилище диалогов
 user_contexts = {}
 
-# === КЛАВИАТУРЫ ===
+# === КНОПКИ ===
 def get_main_kb():
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔍 Найти собеседницу")]], resize_keyboard=True)
+    # Главная кнопка поиска
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🔍 Найти собеседницу")]],
+        resize_keyboard=True
+    )
 
 def get_chat_kb():
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Завершить чат")]], resize_keyboard=True)
+    # Кнопка во время диалога
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Завершить чат")]],
+        resize_keyboard=True
+    )
 
 def get_action_inline():
+    # Кнопки под анкетой
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="💌 Написать ей", callback_data="start_chat"),
         InlineKeyboardButton(text="⏭ Следующая", callback_data="next_profile")
@@ -42,95 +47,84 @@ def get_action_inline():
 def generate_profile():
     seed = random.randint(1, 999999)
     try:
-        # Генерируем описание через более умную модель 70b
         chat_completion = client.chat.completions.create(
             model="llama-3.3-70b-specdec", 
-            messages=[{"role": "user", "content": "Придумай имя, возраст (18-25) и краткое хобби для девушки. Пиши только это, одной строкой на русском."}],
+            messages=[{"role": "user", "content": "Придумай имя, возраст (18-25) и хобби для девушки. Одной строкой на русском."}],
         )
-        profile_text = chat_completion.choices.message.content
+        # ИСПРАВЛЕНО: Добавлен индекс [0]
+        profile_text = chat_completion.choices[0].message.content
         image_url = f"https://image.pollinations.ai{seed}"
         return profile_text, image_url
     except Exception as e:
-        logger.error(f"Ошибка генерации: {e}")
-        return "Мария, 21 год. Люблю спорт и музыку.", None
+        logger.error(f"Ошибка ИИ: {e}")
+        return "Анна, 20 лет. Люблю музыку.", None
 
 # === ОБРАБОТЧИКИ ===
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.answer("Привет! Я — анонимный чат. Ищи анкеты и общайся с ИИ-собеседницами.", reply_markup=get_main_kb())
+    await message.answer("Жми кнопку, чтобы начать!", reply_markup=get_main_kb())
 
 @dp.message(F.text == "🔍 Найти собеседницу")
 async def search_handler(message: types.Message):
     profile, photo_url = generate_profile()
+    # Сохраняем временный профиль
     user_contexts[message.from_user.id] = {"temp_profile": profile}
     
     if photo_url:
         await message.answer_photo(
             photo=photo_url,
-            caption=f"👤 **Найдена анкета:**\n\n{profile}",
-            reply_markup=get_action_inline(),
-            parse_mode="Markdown"
+            caption=f"👤 **Анкета:**\n\n{profile}",
+            reply_markup=get_action_inline()
         )
     else:
-        await message.answer(f"👤 **Найдена анкета:**\n\n{profile}", reply_markup=get_action_inline())
+        await message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
 
 @dp.callback_query(F.data == "start_chat")
-async def start_chat_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    profile = user_contexts.get(user_id, {}).get("temp_profile", "Мария, 21 год")
+async def start_chat(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    profile = user_contexts.get(uid, {}).get("temp_profile", "Собеседница")
     
-    # Системный промпт для "живого" русского языка
-    user_contexts[user_id] = [
-        {"role": "system", "content": (
-            f"Ты девушка по имени {profile}. Ты общаешься в анонимном чате в Telegram. "
-            "Твой стиль: живой разговорный русский, используй смайлики, пиши кратко. "
-            "Не будь официальной, отвечай как реальный человек, немного кокетничай. "
-            "Используй сленг типа 'приветик', 'норм', 'ясно'. Не извиняйся как ИИ."
-        )},
+    # Инициализируем диалог
+    user_contexts[uid] = [
+        {"role": "system", "content": f"Ты девушка {profile}. Пиши кратко, по-русски, как в чате."}
     ]
     
-    await callback.message.answer("✨ Ты начал чат! Напиши что-нибудь своей новой знакомой.", reply_markup=get_chat_kb())
+    await callback.message.answer("✨ Начинай общение!", reply_markup=get_chat_kb())
     await callback.answer()
 
 @dp.callback_query(F.data == "next_profile")
-async def next_profile_callback(callback: types.CallbackQuery):
+async def next_profile(callback: types.CallbackQuery):
     await callback.message.delete()
     await search_handler(callback.message)
     await callback.answer()
 
 @dp.message(F.text == "❌ Завершить чат")
 async def stop_chat(message: types.Message):
-    if message.from_user.id in user_contexts:
-        del user_contexts[message.from_user.id]
-    await message.answer("Чат завершен. Ищем новую собеседницу?", reply_markup=get_main_kb())
+    user_contexts.pop(message.from_user.id, None)
+    await message.answer("Ищем дальше?", reply_markup=get_main_kb())
 
 @dp.message()
 async def chat_handler(message: types.Message):
-    user_id = message.from_user.id
-    
-    # Проверка, что юзер в режиме чата (в словаре лежит список сообщений, а не временный профиль)
-    if user_id not in user_contexts or isinstance(user_contexts[user_id], dict):
+    uid = message.from_user.id
+    # Проверка: если юзер не в чате (а просто прислал текст)
+    if uid not in user_contexts or isinstance(user_contexts[uid], dict):
         return
 
-    user_contexts[user_id].append({"role": "user", "content": message.text})
-
+    user_contexts[uid].append({"role": "user", "content": message.text})
+    
     try:
-        response = client.chat.completions.create(
+        res = client.chat.completions.create(
             model="llama-3.3-70b-specdec",
-            messages=user_contexts[user_id],
-            temperature=0.85
+            messages=user_contexts[uid]
         )
-        ai_reply = response.choices[0].message.content
-        user_contexts[user_id].append({"role": "assistant", "content": ai_reply})
-        await message.answer(ai_reply)
-    except Exception as e:
-        logger.error(f"Groq Error: {e}")
-        await message.answer("⚠️ Связь оборвалась... Напиши еще раз.")
+        ans = res.choices[0].message.content
+        user_contexts[uid].append({"role": "assistant", "content": ans})
+        await message.answer(ans)
+    except:
+        await message.answer("Ой, я отвлеклась. Что?")
 
 async def main():
-    # Удаляем вебхуки и старые сообщения, чтобы не было конфликтов
     await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
