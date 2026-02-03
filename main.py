@@ -148,11 +148,12 @@ async def talk(message: types.Message):
     
     history.append({"role": "user", "content": message.text})
     
-    response = await groq_client.chat.completions.create(
+     response = await groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile", 
         messages=[{"role":"system","content":f"{sys} Доверие: {new_trust}/100"}] + history[-10:]
     )
-    answer = response.choices.message.content
+    # Добавляем индекс [0]
+    answer = response.choices[0].message.content
     history.append({"role": "assistant", "content": answer})
     
     db_query("UPDATE chats SET history = ?, trust_level = ? WHERE user_id = ? AND girl_name = ?", 
