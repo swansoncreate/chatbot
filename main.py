@@ -95,6 +95,22 @@ async def start_chat(callback: types.CallbackQuery):
     await callback.message.answer(f"Вы начали чат с {profile.split(',')[0]}! Напишите ей что-нибудь.", reply_markup=get_chat_kb())
     await callback.answer()
 
+@dp.callback_query(F.data == "next_profile")
+async def next_profile(callback: types.CallbackQuery):
+    # 1. Удаляем сообщение с текущей анкетой, чтобы не захламлять чат
+    await callback.message.delete()
+    
+    # 2. Генерируем новый профиль и сохраняем во временную таблицу БД
+    profile = generate_profile()
+    db_query("INSERT OR REPLACE INTO temp_profiles (user_id, profile) VALUES (?, ?)", 
+             (callback.from_user.id, profile), commit=True)
+
+    # 3. Отправляем новое сообщение с новой анкетой и кнопками "Написать" / "Следующая"
+    await callback.message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
+    
+    # 4. Закрываем индикатор загрузки на кнопке
+    await callback.answer()
+
 @dp.message(F.text == "🗂 Мои чаты")
 async def list_chats(message: types.Message):
     chats = db_query("SELECT id, name_info FROM girls WHERE user_id = ?", (message.from_user.id,))
