@@ -6,6 +6,8 @@ from groq import Groq
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+import sqlite3
+import json
 
 # === НАСТРОЙКИ ===
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +24,18 @@ client = Groq(api_key=GROQ_KEY)
 MODEL_NAME = "llama-3.3-70b-versatile"
 
 user_contexts = {}
+
+def db_query(sql, params=(), fetchone=False, commit=False):
+    with sqlite3.connect("simulator.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        if commit: conn.commit()
+        if fetchone: return cursor.fetchone()
+        return cursor.fetchall()
+
+# Создаем таблицы при запуске
+db_query('''CREATE TABLE IF NOT EXISTS users 
+            (user_id INTEGER PRIMARY KEY, profile TEXT, context TEXT)''', commit=True)
 
 def get_main_kb():
     """
@@ -88,31 +102,38 @@ async def start_cmd(message: types.Message):
 @dp.message(F.text == "🔍 Найти собеседницу")
 async def search_handler(message: types.Message):
     profile = generate_profile()
-    user_contexts[message.from_user.id] = {"temp_profile": profile}
+    # Сохраняем только профиль, контекст пока пуст
+    db_query("INSERT OR REPLACE INTO users (user_id, profile, context) VALUES (?, ?, ?)", 
+             (message.from_user.id, profile, None), commit=True)
     
     await message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
 
 @dp.callback_query(F.data == "start_chat")
 async def start_chat(callback: types.CallbackQuery):
     uid = callback.from_user.id
-    profile = user_contexts.get(uid, {}).get("temp_profile", "Собеседница")
+    row = db_query("SELECT profile FROM users WHERE user_id = ?", (uid,), fetchone=True)
+    profile = row[0] if row else "Мария, 21 год"
     
-    user_contexts[uid] = [
-        {"role": "system", "content": f"Ты — девушка {profile}. Пиши как реальный человек в чате: кратко, на русском, со смайликами. Никакой официальщины."}
+    initial_context = [
+        {"role": "system", "content": f"Ты — девушка {profile}. Пиши кратко, со смайликами."}
     ]
     
     try:
         res = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=user_contexts[uid] + [{"role": "user", "content": "Напиши приветствие."}]
+            messages=initial_context + [{"role": "user", "content": "Напиши приветствие."}]
         )
-        # ИСПРАВЛЕНО: Правильный доступ к контенту ответа
         first_msg = res.choices[0].message.content
-        user_contexts[uid].append({"role": "assistant", "content": first_msg})
-        await callback.message.answer(first_msg, reply_markup=get_chat_kb())
-    except:
-        await callback.message.answer("Приветик! 😊", reply_markup=get_chat_kb())
+        initial_context.append({"role": "assistant", "content": first_msg})
         
+        # Сохраняем обновленный контекст в БД
+        db_query("UPDATE users SET context = ? WHERE user_id = ?", 
+                 (json.dumps(initial_context), uid), commit=True)
+        
+        await callback.message.answer(first_msg, reply_markup=get_chat_kb())
+    except Exception as e:
+        logger.error(f"Ошибка старта: {e}")
+        await callback.message.answer("Приветик! 😊", reply_markup=get_chat_kb())
     await callback.answer()
 
 @dp.callback_query(F.data == "next_profile")
@@ -121,28 +142,38 @@ async def next_profile(callback: types.CallbackQuery):
     await search_handler(callback.message)
     await callback.answer()
 
-@dp.message(F.text == "❌ Завершить чат")
+@dp.message(F.text == "❌ Завершить chat")
 async def stop_chat(message: types.Message):
-    user_contexts.pop(message.from_user.id, None)
+    db_query("DELETE FROM users WHERE user_id = ?", (message.from_user.id,), commit=True)
     await message.answer("Чат завершен. Ищем дальше?", reply_markup=get_main_kb())
 
 @dp.message()
 async def chat_handler(message: types.Message):
     uid = message.from_user.id
-    if uid not in user_contexts or isinstance(user_contexts[uid], dict):
-        return
-
-    user_contexts[uid].append({"role": "user", "content": message.text})
+    row = db_query("SELECT context FROM users WHERE user_id = ?", (uid,), fetchone=True)
     
+    if not row or row[0] is None:
+        return # Чат не активен
+
+    context = json.loads(row[0])
+    context.append({"role": "user", "content": message.text})
+    
+    # Ограничиваем историю (последние 10 сообщений + системный промпт), чтобы не переполнять БД
+    if len(context) > 11:
+        context = [context[0]] + context[-10:]
+
     try:
-        res = client.chat.completions.create(model=MODEL_NAME, messages=user_contexts[uid])
-        # ИСПРАВЛЕНО: Правильный доступ к контенту ответа
+        await bot.send_chat_action(message.chat.id, "typing")
+        res = client.chat.completions.create(model=MODEL_NAME, messages=context)
         ans = res.choices[0].message.content
-        user_contexts[uid].append({"role": "assistant", "content": ans})
+        context.append({"role": "assistant", "content": ans})
+        
+        db_query("UPDATE users SET context = ? WHERE user_id = ?", 
+                 (json.dumps(context), uid), commit=True)
         await message.answer(ans)
     except Exception as e:
         logger.error(f"Ошибка чата: {e}")
-        await message.answer("Я на секунду отвлеклась, повтори? 😇")
+        await message.answer("Связь прервалась... Повторишь? ⚡️")
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
