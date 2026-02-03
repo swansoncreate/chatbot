@@ -38,17 +38,15 @@ def get_action_inline():
 
 # === ЛОГИКА ИИ ===
 def generate_profile():
-    seed = random.randint(1, 999999)
     try:
         chat_completion = client.chat.completions.create(
             model=MODEL_NAME, 
             messages=[{"role": "user", "content": "Придумай имя, возраст (18-25) и хобби для девушки. Одной короткой строкой на русском."}],
         )
-        profile_text = chat_completion.choices[0].message.content
-        return profile_text
+        return chat_completion.choices[0].message.content
     except Exception as e:
         logger.error(f"Ошибка ИИ (профиль): {e}")
-        return "Мария, 21 год. Люблю приключения.", None
+        return "Мария, 21 год. Люблю приключения."
 
 # === ОБРАБОТЧИКИ ===
 @dp.message(Command("start"))
@@ -57,9 +55,8 @@ async def start_cmd(message: types.Message):
 
 @dp.message(F.text == "🔍 Найти собеседницу")
 async def search_handler(message: types.Message):
-    profile =  generate_profile()
+    profile = generate_profile()
     user_contexts[message.from_user.id] = {"temp_profile": profile}
-    
     await message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
 
 @dp.callback_query(F.data == "start_chat")
@@ -67,12 +64,11 @@ async def start_chat(callback: types.CallbackQuery):
     uid = callback.from_user.id
     profile = user_contexts.get(uid, {}).get("temp_profile", "Собеседница")
     
-    # Промпт для роли
+    # Инициализация контекста диалога
     user_contexts[uid] = [
         {"role": "system", "content": f"Ты — девушка {profile}. Пиши как реальный человек в чате: кратко, на русском, со смайликами. Никакой официальщины."}
     ]
     
-    # Генерируем первое сообщение от неё
     try:
         res = client.chat.completions.create(
             model=MODEL_NAME,
@@ -83,7 +79,6 @@ async def start_chat(callback: types.CallbackQuery):
         await callback.message.answer(first_msg, reply_markup=get_chat_kb())
     except:
         await callback.message.answer("Приветик! 😊", reply_markup=get_chat_kb())
-        
     await callback.answer()
 
 @dp.callback_query(F.data == "next_profile")
@@ -106,10 +101,7 @@ async def chat_handler(message: types.Message):
     user_contexts[uid].append({"role": "user", "content": message.text})
     
     try:
-        res = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=user_contexts[uid]
-        )
+        res = client.chat.completions.create(model=MODEL_NAME, messages=user_contexts[uid])
         ans = res.choices[0].message.content
         user_contexts[uid].append({"role": "assistant", "content": ans})
         await message.answer(ans)
