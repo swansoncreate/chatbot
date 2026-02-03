@@ -1,3 +1,23 @@
+import os
+import asyncio
+import sqlite3
+import json
+import logging
+from groq import Groq
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+
+# === НАСТРОЙКИ ===
+logging.basicConfig(level=logging.INFO)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+client = Groq(api_key=GROQ_KEY)
+MODEL_NAME = "llama-3.3-70b-versatile"
+
 def db_query(sql, params=(), fetchone=False, commit=False):
     with sqlite3.connect("simulator.db") as conn:
         cursor = conn.cursor()
