@@ -70,6 +70,7 @@ def generate_profile():
 # === ОБРАБОТЧИКИ ===
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
+    # Добавляем аргумент reply_markup
     await message.answer("Добро пожаловать в симулятор знакомств!", reply_markup=get_main_kb())
 
 @dp.message(F.text == "🔍 Найти собеседницу")
