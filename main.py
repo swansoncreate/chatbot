@@ -88,9 +88,11 @@ async def search(message: types.Message):
     if 'active_search_cache' not in globals(): active_search_cache = {}
     active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
     
-    try:
+      try:
         await message.answer_photo(photo=photo_url, caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", reply_markup=kb)
-    except:
+    except Exception as e:
+        # Эта строка выведет ошибку в лог GitHub Actions
+        print(f"ОШИБКА ОТПРАВКИ ФОТО: {e}") 
         await message.answer(f"✨ {person['name']}, {person['age']} лет\n(Фото временно недоступно)\nХобби: {person['hobby']}", reply_markup=kb)
 
 @dp.callback_query(F.data == "next")
