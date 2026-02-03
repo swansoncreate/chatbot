@@ -53,10 +53,10 @@ async def generate_ai_personality():
               "'photo_style': 'detailed english prompt for image generation focus on appearance and background'}")
     try:
         res = await groq_client.chat.completions.create(
-            model="llama3-8b-8192", 
+            model="llama-3.1-8b-instant", # Новая рабочая модель
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
-        )
+        )    
         data = json.loads(res.choices[0].message.content)
         print(f"Сгенерирована личность: {data['name']}", flush=True)
         return data
@@ -75,18 +75,25 @@ async def cmd_start(message: types.Message):
 
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
+    # Создаем заглушку на случай ошибки, чтобы код не падал при обращении к переменным
+    person = {"name": "Девушка", "age": 20, "hobby": "Общение"} 
+    kb = None
+    
     try:
-        person = await generate_ai_personality()
+        # 1. Используем актуальную модель Llama 3.1
+        person = await generate_ai_personality() # Внутри этой функции тоже замени модель на llama-3.1-8b-instant
         app = random.choice(APPEARANCES)
         seed = random.randint(1, 10**9)
         
-        # Собираем промпт: внешность + стиль (строго английский для URL)
+        # 2. Формируем промпт для фото (только латиница)
         clean_style = person.get('photo_style', 'beautiful face').replace("'", "").replace('"', "")
         full_prompt = f"{app}, {clean_style}, high quality, realistic face"
         encoded_prompt = urllib.parse.quote(full_prompt)
         
-        # ИСПРАВЛЕННЫЙ URL с /prompt/
-        photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
+        # 3. ЭТАЛОННЫЙ URL (обязательно /prompt/ после домена)
+        photo_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
+        
+        # Выводим в лог для проверки
         print(f"DEBUG URL: {photo_url}", flush=True)
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -96,14 +103,21 @@ async def search(message: types.Message):
         
         active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
 
+        # 4. Отправка фото
         await message.answer_photo(
-            photo=URLInputFile(photo_url), 
+            photo=photo_url, 
             caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", 
             reply_markup=kb
         )
+        
     except Exception as e:
-        print(f"Ошибка в поиске: {e}", flush=True)
-        await message.answer(f"✨ {person['name']} (фото недоступно)\nХобби: {person['hobby']}", reply_markup=kb)
+        print(f"КРИТИЧЕСКАЯ ОШИБКА В SEARCH: {e}", flush=True)
+        # Если фото сломалось, отправляем текст, чтобы бот не «молчал»
+        error_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ Попробовать еще раз", callback_data="next")]])
+        await message.answer(
+            f"✨ {person['name']}, {person['age']} лет\n(Фото временно недоступно из-за ошибки API)\nХобби: {person['hobby']}", 
+            reply_markup=kb if kb else error_kb
+        )
 
 @dp.callback_query(F.data == "next")
 async def next_girl(c: types.CallbackQuery):
