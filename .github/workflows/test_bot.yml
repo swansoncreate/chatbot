@@ -1,31 +1,41 @@
-name: Test Telegram Bot
+name: Bot Test Run
 
 on:
-  workflow_dispatch: # Позволяет запускать вручную из интерфейса GitHub
-  # Можно добавить schedule для запуска в определенное время
-  # schedule:
-  #   - cron: '0 * * * *' # Пример: каждый час
+  push:
+    branches: [ "main" ] # Запуск при пуше в main
+  workflow_dispatch:      # Позволяет запустить вручную кнопкой
 
 jobs:
-  run_bot:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # Устанавливает лимит в 6 часов (360 минут)
-
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install aiogram groq
 
-      - name: Run bot for testing
+      - name: Run Bot
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }} # Использует секрет репозитория
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python main.py
 
-concurrency:
-  group: telegram-bot
-  cancel-in-progress: true  # Это убьет прошлую копию сама
+      - name: Restore Database Cache
+        uses: actions/cache@v4
+        with:
+          path: bot_data.db
+          key: ${{ runner.os }}-bot-db-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-bot-db-
+
+      - name: Run Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python main.py
