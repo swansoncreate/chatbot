@@ -4,6 +4,7 @@ import sqlite3
 import json
 import os
 import urllib.parse
+import sys
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, URLInputFile
@@ -12,6 +13,9 @@ from groq import AsyncGroq
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not BOT_TOKEN or not GROQ_API_KEY:
+    print("ОШИБКА: Токены не найдены в переменых окружения!", flush=True)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -32,6 +36,7 @@ def init_db():
     db_query("""CREATE TABLE IF NOT EXISTS chats 
                 (user_id INTEGER, girl_name TEXT, appearance TEXT, seed INTEGER, 
                 system_prompt TEXT, history TEXT, is_active INTEGER, trust_level INTEGER)""")
+    print("БД Инициализирована", flush=True)
 
 # --- ВСПОМОГАТЕЛЬНОЕ ---
 APPEARANCES = ["scandinavian blonde woman", "latin brunette woman", "asian cute girl", "slavic beautiful woman"]
@@ -39,25 +44,25 @@ APPEARANCES = ["scandinavian blonde woman", "latin brunette woman", "asian cute 
 def get_chat_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Выйти", callback_data="exit_chat"),
-         InlineKeyboardButton(text="🗑 Удалить", callback_data="delete_chat")]
+         InlineKeyboardButton(text="🗑 Удалить чат", callback_data="delete_chat")]
     ])
     
 async def generate_ai_personality():
-    salt = random.randint(1, 9999)
-    # Просим JSON с русским описанием и английским промптом для фото
     prompt = ("Create a unique female personality. "
               "Return ONLY JSON: {'name': 'Имя', 'age': 22, 'hobby': 'Хобби на русском', "
-              "'photo_style': 'detailed english prompt for image generation based on hobby'}")
+              "'photo_style': 'detailed english prompt for image generation focus on appearance and background'}")
     try:
         res = await groq_client.chat.completions.create(
             model="llama3-8b-8192", 
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        return json.loads(res.choices[0].message.content)
+        data = json.loads(res.choices[0].message.content)
+        print(f"Сгенерирована личность: {data['name']}", flush=True)
+        return data
     except Exception as e:
-        print(f"Ошибка Groq: {e}")
-        return {"name": "Анна", "age": 21, "hobby": "Фотография", "photo_style": "girl with a camera"}
+        print(f"Ошибка Groq (личность): {e}", flush=True)
+        return {"name": "Анна", "age": 21, "hobby": "Фотография", "photo_style": "girl with a camera, cinematic light"}
 
 # --- ОБРАБОТЧИКИ ---
 @dp.message(Command("start"))
@@ -66,7 +71,7 @@ async def cmd_start(message: types.Message):
         [KeyboardButton(text="🔍 Найти пару"), KeyboardButton(text="❤️ Статус")],
         [KeyboardButton(text="📇 Контакты")]
     ], resize_keyboard=True)
-    await message.answer("Симулятор запущен!", reply_markup=kb)
+    await message.answer("Симулятор запущен! Нажми 'Найти пару', чтобы начать.", reply_markup=kb)
 
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
@@ -75,17 +80,14 @@ async def search(message: types.Message):
         app = random.choice(APPEARANCES)
         seed = random.randint(1, 10**9)
         
-        # Собираем промпт: внешность + стиль от ИИ (на английском)
-        # Очищаем от кавычек на всякий случай
+        # Собираем промпт: внешность + стиль (строго английский для URL)
         clean_style = person.get('photo_style', 'beautiful face').replace("'", "").replace('"', "")
         full_prompt = f"{app}, {clean_style}, high quality, realistic face"
-        
         encoded_prompt = urllib.parse.quote(full_prompt)
         
-        # ЭТАЛОННАЯ ССЫЛКА
+        # ИСПРАВЛЕННЫЙ URL с /prompt/
         photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
-        
-        print(f"DEBUG URL: {photo_url}") # Проверка в GitHub Actions
+        print(f"DEBUG URL: {photo_url}", flush=True)
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Начать общение", callback_data=f"set_{seed}")],
@@ -95,14 +97,13 @@ async def search(message: types.Message):
         active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
 
         await message.answer_photo(
-            photo=photo_url, 
+            photo=URLInputFile(photo_url), 
             caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", 
             reply_markup=kb
         )
     except Exception as e:
-        print(f"Ошибка в поиске: {e}")
-        # Если фото упало, хотя бы пришлем текст
-        await message.answer(f"✨ {person['name']} (фото загружается...)\nХобби: {person['hobby']}", reply_markup=kb)
+        print(f"Ошибка в поиске: {e}", flush=True)
+        await message.answer(f"✨ {person['name']} (фото недоступно)\nХобби: {person['hobby']}", reply_markup=kb)
 
 @dp.callback_query(F.data == "next")
 async def next_girl(c: types.CallbackQuery):
@@ -113,14 +114,16 @@ async def next_girl(c: types.CallbackQuery):
 async def set_chat(c: types.CallbackQuery):
     uid = c.from_user.id
     data = active_search_cache.get(uid)
-    if not data: return
+    if not data: 
+        return await c.answer("Ошибка: данные устарели. Попробуй найти заново.")
     
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (uid,))
-    sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Будь краткой и реалистичной."
-    db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 15)", 
+    sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Твое хобби {data['hobby']}. Будь краткой, дерзкой и реалистичной."
+    
+    db_query("INSERT INTO chats (user_id, girl_name, appearance, seed, system_prompt, history, is_active, trust_level) VALUES (?, ?, ?, ?, ?, ?, 1, 15)", 
              (uid, data['name'], data['app'], data['seed'], sys_prompt, json.dumps([])))
     
-    await c.message.answer(f"Чат с {data['name']} открыт!", reply_markup=get_chat_kb())
+    await c.message.answer(f"Чат с {data['name']} открыт! Напиши ей что-нибудь.", reply_markup=get_chat_kb())
     await c.answer()
 
 @dp.message(F.text == "❤️ Статус")
@@ -137,31 +140,43 @@ async def list_contacts(message: types.Message):
     btns = [[InlineKeyboardButton(text=g[0], callback_data=f"sw_{g[0]}")] for g in girls]
     await message.answer("Твои контакты:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
 
+@dp.callback_query(F.data == "exit_chat")
+async def exit_chat(c: types.CallbackQuery):
+    db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (c.from_user.id,))
+    await c.message.answer("Вы вышли в главное меню.")
+    await c.answer()
+
 @dp.message()
 async def talk(message: types.Message):
     res = db_query("SELECT girl_name, system_prompt, history, trust_level FROM chats WHERE user_id = ? AND is_active = 1", (message.from_user.id,), fetchone=True)
     if not res: return
 
-    name, sys, hist_raw, trust = res
+    name, sys_p, hist_raw, trust = res
     history = json.loads(hist_raw)
     
-    # Очень упрощенный анализ изменения доверия
+    # Рост доверия
     change = 2 if len(message.text) > 10 else 1
     new_trust = min(100, trust + change)
     
     history.append({"role": "user", "content": message.text})
     
-    response = await groq_client.chat.completions.create(model="llama-3.3-70b-versatile",messages=[{"role":"system","content":f"{sys} Доверие: {new_trust}/100"}] + history[-10:])
-    # Добавляем индекс [0]
-    answer = response.choices[0].message.content
-    history.append({"role": "assistant", "content": answer})
-    
-    db_query("UPDATE chats SET history = ?, trust_level = ? WHERE user_id = ? AND girl_name = ?", 
-             (json.dumps(history), new_trust, message.from_user.id, name))
-    await message.answer(answer)
+    try:
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role":"system","content":f"{sys_p} Уровень симпатии к игроку: {new_trust}/100. Отвечай как живая девушка в мессенджере."}] + history[-8:]
+        )
+        answer = response.choices[0].message.content
+        history.append({"role": "assistant", "content": answer})
+        
+        db_query("UPDATE chats SET history = ?, trust_level = ? WHERE user_id = ? AND girl_name = ?", 
+                 (json.dumps(history), new_trust, message.from_user.id, name))
+        await message.answer(answer)
+    except Exception as e:
+        print(f"Ошибка Groq (talk): {e}", flush=True)
 
 async def main():
     init_db()
+    print("Бот запускается...", flush=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
