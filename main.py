@@ -70,7 +70,10 @@ async def search(message: types.Message):
     app = random.choice(APPEARANCES)
     seed = random.randint(1, 10**9)
     
-    prompt_text = f"{app}, {person['hobby']}, realistic"
+    prompt_text = f"{app}, {person['hobby']}, high quality, realistic face"
+    # 2. Кодируем его (создаем ту самую переменную encoded_prompt)
+    encoded_prompt = urllib.parse.quote(prompt_text)
+    # 3. И только потом вставляем в ссылку с /prompt/
     photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
     print(photo_url)
     
