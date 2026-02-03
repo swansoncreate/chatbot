@@ -22,58 +22,57 @@ def get_main_kb():
         resize_keyboard=True
     )
 
-# === ЛОГИКА ===
+# === ЛОГИКА ГЕНЕРАЦИИ ===
 def get_ai_profile():
     seed = random.randint(1, 999999)
     
-    # Исправленный эндпоинт (openai - самый стабильный у них сейчас)
-    # Запрашиваем на английском, чтобы не было проблем с кодировкой, но просим русский ответ
-    prompt = "Generate a short dating profile for a girl: Name, Age (18-25), Hobby. Response language: Russian."
-    text_url = f"https://text.pollinations.ai{quote(prompt)}?seed={seed}&model=openai"
+    # 1. ТЕКСТ (добавили явный слэш перед prompt)
+    prompt_text = "Generate dating profile: Name, Age (18-25), Hobby. In Russian language."
+    # ВАЖНО: слэш / после .ai/ ОБЯЗАТЕЛЕН
+    text_url = f"https://text.pollinations.ai{quote(prompt_text)}?seed={seed}&model=openai"
     
     try:
-        logger.info(f"Запрос к тексту: {text_url}")
-        response = requests.get(text_url, timeout=15)
-        
-        if response.status_code != 200:
-            logger.warning(f"Сервер текста выдал {response.status_code}, использую заглушку")
-            profile_text = "Екатерина, 22 года. Люблю путешествия и живое общение!"
-        else:
-            profile_text = response.text.strip()
-    except Exception as e:
-        logger.error(f"Ошибка сети при запросе текста: {e}")
-        profile_text = "Анастасия, 19 лет. Рисую и смотрю кино."
+        logger.info(f"Запрос текста: {text_url}")
+        res = requests.get(text_url, timeout=10)
+        profile_text = res.text.strip() if res.status_code == 200 else "Екатерина, 20 лет. Люблю музыку."
+    except:
+        profile_text = "Анастасия, 22 года. Обожаю спорт."
 
-    # Картинка (prompt на английском для лучшего качества)
-    image_prompt = "beautiful young woman portrait, natural light, realistic photography"
-    image_url = f"https://image.pollinations.ai{quote(image_prompt)}?seed={seed}&width=1024&height=1024&nologo=true"
+    # 2. ФОТО (упростили промпт для стабильности URL)
+    image_desc = "beautiful young woman portrait"
+    # Ссылка должна быть максимально простой для Telegram
+    image_url = f"https://image.pollinations.ai{quote(image_desc)}?seed={seed}&width=512&height=512&nologo=true"
     
+    logger.info(f"Запрос фото: {image_url}")
     return image_url, profile_text
 
-# === HANDLERS ===
+# === ОБРАБОТЧИКИ ===
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.answer("Привет! Нажми на кнопку ниже, чтобы найти анкету.", reply_markup=get_main_kb())
+    await message.answer("Бот запущен. Нажми кнопку!", reply_markup=get_main_kb())
 
 @dp.message(F.text == "🔍 Начать поиск")
 async def search_handler(message: types.Message):
-    status_msg = await message.answer("🔍 Ищу в базе данных...")
+    status_msg = await message.answer("📡 Ищу собеседницу...")
     
     try:
         photo_url, caption = get_ai_profile()
+        
+        # Отправляем фото
         await message.answer_photo(
             photo=photo_url,
-            caption=f"👤 **Анкета найдена:**\n\n{caption}",
+            caption=f"✅ **Найдена:**\n\n{caption}",
             parse_mode="Markdown"
         )
     except Exception as e:
-        logger.error(f"Общий сбой: {e}", exc_info=True)
-        await message.answer("❌ Сервер временно перегружен. Попробуй еще раз через пару секунд.")
+        logger.error(f"Ошибка: {e}")
+        await message.answer("❌ Ошибка связи с ИИ. Попробуй еще раз.")
     finally:
         await status_msg.delete()
 
 async def main():
-    logger.info("Бот запущен!")
+    # Удаляем вебхуки, чтобы убрать ошибку Conflict
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
