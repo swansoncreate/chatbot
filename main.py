@@ -25,13 +25,30 @@ user_contexts = {}
 
 # === КНОПКИ ===
 def get_main_kb():
-    return ReplyKeyboardMarkup(keyboard=], resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="📊 Инфо")]
+        ], 
+        resize_keyboard=True
+    )
 
 def get_chat_kb():
-    return ReplyKeyboardMarkup(keyboard=], resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🎤 Начать чат")],
+            [KeyboardButton(text="❌ Выйти")]
+        ], 
+        resize_keyboard=True
+    )
 
 def get_action_inline():
-    return InlineKeyboardMarkup(inline_keyboard=])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm")],
+            [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete")]
+        ]
+    )
 
 # === ЛОГИКА ИИ ===
 def generate_profile():
