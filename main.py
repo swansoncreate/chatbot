@@ -80,7 +80,7 @@ async def search(message: types.Message):
     app = random.choice(APPEARANCES)
     seed = random.randint(1, 10**9)
     
-    photo_url = f"https://image.pollinations.ai_{app.replace(' ', '_')}_age_{person['age']}?seed={seed}&model=zimage"
+    photo_url = f"https://image.pollinations.ai{app.replace(' ', '_')}_age_{person['age']}?seed={seed}&model=zimage"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✅ Начать чат с {person['name']}", callback_data=f"set_{seed}")],
@@ -173,7 +173,7 @@ async def talk(message: types.Message):
     # Фото (20% шанс при росте доверия)
     if new_trust > trust and random.random() < 0.2:
         loc = "home_selfie" if new_trust > 75 else "cafe_portrait"
-        url = f"https://image.pollinations.ai_{app.replace(' ','_')}_{loc}?seed={seed}&model=flux"
+        url = f"https://image.pollinations.ai{app.replace(' ','_')}_{loc}?seed={seed}&model=flux"
         await asyncio.sleep(1.5); await message.answer_photo(url, caption="😊")
 
     history.append({"role":"user","content":message.text})
