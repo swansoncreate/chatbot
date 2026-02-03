@@ -118,7 +118,7 @@ async def set_chat(c: types.CallbackQuery):
 @dp.callback_query(F.data == "exit_chat")
 async def exit_chat(c: types.CallbackQuery):
     try:
-        db_query("UPDATE chats SET is_active = 0 WHERE user_user_id = ?", (c.from_user.id,)) # Исправлено: user_user_id на user_id
+        db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (c.from_user.id,))
         await c.message.answer("Вы вышли в главное меню.")
         await c.answer()
     except Exception as e:
