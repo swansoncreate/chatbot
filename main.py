@@ -6,7 +6,7 @@ import os
 import urllib.parse
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, URLInputFile
 from groq import AsyncGroq
 
 # --- КОНФИГУРАЦИЯ ---
@@ -70,21 +70,36 @@ async def search(message: types.Message):
     app = random.choice(APPEARANCES)
     seed = random.randint(1, 10**9)
     
-    prompt_text = f"{app}, {person['hobby']}, high quality, realistic face"
-    # 2. Кодируем его (создаем ту самую переменную encoded_prompt)
+    # Чистим промпт от лишнего
+    clean_hobby = person['hobby'].replace("'", "").replace('"', "")
+    prompt_text = f"{app} {clean_hobby} high quality realistic face"
     encoded_prompt = urllib.parse.quote(prompt_text)
-    # 3. И только потом вставляем в ссылку с /prompt/
-    photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
-    print(photo_url)
     
-    active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
+    # Чистая ссылка без лишних знаков в конце
+    photo_url = f"https://image.pollinations.ai{encoded_prompt}?seed={seed}&width=512&height=512&nologo=true"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Начать общение", callback_data=f"set_{seed}")],
         [InlineKeyboardButton(text="⏭ Следующая", callback_data="next")]
     ])
     
-    await message.answer_photo(photo=photo_url, caption=f"✨ {person['name']}, {person['age']} лет\n{person['hobby']}", reply_markup=kb)
+    active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
+    
+    try:
+        # Используем URLInputFile вместо прямой строки
+        image = URLInputFile(photo_url)
+        await message.answer_photo(
+            photo=image, 
+            caption=f"✨ {person['name']}, {person['age']} лет\nХобби: {person['hobby']}", 
+            reply_markup=kb
+        )
+    except Exception as e:
+        print(f"Ошибка фото: {e}")
+        # Если ссылка все равно плохая — просто шлем текст
+        await message.answer(
+            f"✨ {person['name']}, {person['age']} лет\n(Фото не прогрузилось)\nХобби: {person['hobby']}", 
+            reply_markup=kb
+        )
 
 @dp.callback_query(F.data == "next")
 async def next_girl(c: types.CallbackQuery):
