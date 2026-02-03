@@ -74,7 +74,8 @@ def generate_profile():
             model=MODEL_NAME, 
             messages=[{"role": "user", "content": "Придумай имя, возраст (18-25) и хобби для девушки. Одной короткой строкой на русском."}],
         )
-        return chat_completion.choices.message.content
+        # ИСПРАВЛЕНО: Правильный доступ к контенту ответа
+        return chat_completion.choices[0].message.content
     except Exception as e:
         logger.error(f"Ошибка ИИ (профиль): {e}")
         return "Мария, 21 год. Люблю приключения."
@@ -89,7 +90,6 @@ async def search_handler(message: types.Message):
     profile = generate_profile()
     user_contexts[message.from_user.id] = {"temp_profile": profile}
     
-    # ИСПРАВЛЕНО: Добавлена main_kb, чтобы она не пропадала
     await message.answer(f"👤 **Анкета:**\n\n{profile}", reply_markup=get_action_inline())
 
 @dp.callback_query(F.data == "start_chat")
@@ -106,7 +106,8 @@ async def start_chat(callback: types.CallbackQuery):
             model=MODEL_NAME,
             messages=user_contexts[uid] + [{"role": "user", "content": "Напиши приветствие."}]
         )
-        first_msg = res.choices.message.content
+        # ИСПРАВЛЕНО: Правильный доступ к контенту ответа
+        first_msg = res.choices[0].message.content
         user_contexts[uid].append({"role": "assistant", "content": first_msg})
         await callback.message.answer(first_msg, reply_markup=get_chat_kb())
     except:
@@ -117,7 +118,6 @@ async def start_chat(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "next_profile")
 async def next_profile(callback: types.CallbackQuery):
     await callback.message.delete()
-    # ИСПРАВЛЕНО: При смене профиля вызываем хендлер, который отправит нужную клаву
     await search_handler(callback.message)
     await callback.answer()
 
@@ -136,7 +136,8 @@ async def chat_handler(message: types.Message):
     
     try:
         res = client.chat.completions.create(model=MODEL_NAME, messages=user_contexts[uid])
-        ans = res.choices.message.content
+        # ИСПРАВЛЕНО: Правильный доступ к контенту ответа
+        ans = res.choices[0].message.content
         user_contexts[uid].append({"role": "assistant", "content": ans})
         await message.answer(ans)
     except Exception as e:
