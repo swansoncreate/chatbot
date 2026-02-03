@@ -29,26 +29,18 @@ def db_query(query, params=(), fetchone=False, fetchall=False):
         conn.commit()
 
 def init_db():
-    db_query("""CREATE TABLE IF NOT EXISTS chats 
-                (user_id INTEGER, girl_name TEXT, appearance TEXT, seed INTEGER, 
+    db_query("""CREATE TABLE IF NOT EXISTS chats
+                (user_id INTEGER, girl_name TEXT, appearance TEXT, seed INTEGER,
                 system_prompt TEXT, history TEXT, is_active INTEGER, trust_level INTEGER)""")
     db_query("CREATE TABLE IF NOT EXISTS user_facts (user_id INTEGER, fact_key TEXT, fact_value TEXT)")
 
 # --- ЛОГИКА ГЕНЕРАЦИИ ---
 
-APPEARANCES = [
-    "scandinavian beauty, blonde hair, blue eyes",
-    "mediterranean, wavy dark hair, brown eyes",
-    "slavic, chestnut hair, green eyes",
-    "latin style, curly black hair, tan skin"
-]
-
 async def generate_ai_personality():
-    """Генерирует уникальную личность через ИИ Groq"""
     prompt = "Придумай случайную девушку: Имя, Возраст (15-40), Хобби. Верни ТОЛЬКО JSON: {'name': '..', 'age': .., 'hobby': '..'}"
     try:
         res = await groq_client.chat.completions.create(
-            model="llama3-8b-8192", 
+            model="llama3-8b-8192",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -61,7 +53,7 @@ def get_time_context():
     if 5 <= h < 12: return "Утро. Ты сонная и милая."
     if 12 <= h < 18: return "День. Ты бодрая и занятая."
     return "Вечер/ночь. Ты расслабленная и откровенная."
-    
+
 # --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("start"))
@@ -77,18 +69,16 @@ active_search_cache = {}
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
     person = await generate_ai_personality()
-    app = random.choice(APPEARANCES)
+    app = "Привлекательная внешность"
     seed = random.randint(1, 10**9)
-    
-    photo_url = f"https://image.pollinations.ai{app.replace(' ', '_')}_age_{person['age']}?seed={seed}&model=zimage"
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✅ Начать чат с {person['name']}", callback_data=f"set_{seed}")],
         [InlineKeyboardButton(text="👎 Дальше", callback_data="next")]
     ])
-    
+
     active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
-    await message.answer_photo(photo=photo_url, caption=f"✨ {person['name']}, {person['age']} лет\nУвлекается: {person['hobby']}", reply_markup=kb)
+    await message.answer(f"✨ {person['name']}, {person['age']} лет\nУвлекается: {person['hobby']}", reply_markup=kb)
 
 @dp.callback_query(F.data == "next")
 async def next_callback(c: types.CallbackQuery):
@@ -100,12 +90,12 @@ async def set_chat(c: types.CallbackQuery):
     uid = c.from_user.id
     data = active_search_cache.get(uid)
     if not data: return
-    
+
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (uid,))
     sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Хобби: {data['hobby']}. Внешность: {data['app']}."
-    db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 15)", 
+    db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 15)",
              (uid, data['name'], data['app'], data['seed'], sys_prompt, json.dumps([])))
-    
+
     await c.message.answer(f"Чат с {data['name']} открыт!")
     await c.answer()
 
@@ -139,7 +129,6 @@ async def talk(message: types.Message):
     name, app, seed, sys, hist_raw, trust = res
     history = json.loads(hist_raw)
 
-    # Память на факты
     f_prompt = f"Извлеки факты о юзере из: '{message.text}'. Верни JSON {{'ключ':'значение'}} или {{}}."
     try:
         f_res = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role":"user","content":f_prompt}])
@@ -150,16 +139,14 @@ async def talk(message: types.Message):
     all_f = db_query("SELECT fact_key, fact_value FROM user_facts WHERE user_id = ?", (uid,), fetchall=True)
     facts_str = ", ".join([f"{f[0]}:{f[1]}" for f in all_f])
 
-    # Доверие
     try:
         ans = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role":"user","content":f"User:'{message.text}'. Friendly:+5, Rude:-10. Number only."}])
         change = int(''.join(filter(lambda x: x in "-0123456789", ans.choices.message.content)))
     except: change = 1
-    
+
     new_trust = max(0, min(100, trust + change))
     db_query("UPDATE chats SET trust_level = ? WHERE user_id = ? AND girl_name = ?", (new_trust, uid, name))
 
-    # Ответ
     mood = "сдержанная" if new_trust < 40 else "игривая" if new_trust < 80 else "влюбленная"
     prompt = f"{sys} {get_time_context()} Твой настрой: {mood}. Ты знаешь о юзере: {facts_str}. Пиши кратко."
 
@@ -170,18 +157,16 @@ async def talk(message: types.Message):
     await asyncio.sleep(min(max(1.5, len(answer)*0.03), 4))
     await message.answer(answer)
 
-    # Фото (20% шанс при росте доверия)
-    if new_trust > trust and random.random() < 0.2:
-        loc = "home_selfie" if new_trust > 75 else "cafe_portrait"
-        url = f"https://image.pollinations.ai{app.replace(' ','_')}_{loc}?seed={seed}&model=flux"
-        await asyncio.sleep(1.5); await message.answer_photo(url, caption="😊")
-
     history.append({"role":"user","content":message.text})
     history.append({"role":"assistant","content":answer})
     db_query("UPDATE chats SET history = ? WHERE user_id = ? AND girl_name = ?", (json.dumps(history[-10:]), uid, name))
 
 async def main():
-    init_db(); await dp.start_polling(bot)
+    init_db()
+    # удаляем старые обновления перед стартом
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    # полная строка запуска
     asyncio.run(main())
