@@ -61,7 +61,7 @@ def generate_profile():
     try:
         res = client.chat.completions.create(
             model=MODEL_NAME, 
-            messages=[{"role": "user", "content": "Придумай имя, возраст (18-25) и хобби для девушки. Одной короткой строкой на русском."}],
+            messages=[{"role": "user", "content": "Придумай имя, возраст (15-45) и описание о себе. Одной короткой строкой на русском."}],
         )
         return res.choices[0].message.content
     except:
