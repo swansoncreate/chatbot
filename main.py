@@ -55,7 +55,7 @@ async def generate_ai_personality():
 
 def get_chat_kb():
     return InlineKeyboardMarkup(inline_keyboard=
-    ])
+    )
 
 # --- ОБРАБОТЧИКИ ---
 
