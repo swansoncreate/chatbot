@@ -23,33 +23,50 @@ MODEL_NAME = "llama-3.3-70b-versatile"
 
 user_contexts = {}
 
-# === КНОПКИ ===
 def get_main_kb():
+    """
+    Клавиатура, которая появляется внизу экрана (Reply), для поиска анкет.
+    """
+    # Создаем кнопку
+    button_search = KeyboardButton(text="🔍 Найти собеседницу")
+    
+    # Собираем в ряд (список списков: [[кнопка]])
+    keyboard_layout = [[button_search]]
+    
+    # Создаем и возвращаем объект клавиатуры
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🏠 Главное меню")],
-            [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="📊 Инфо")]
-        ], 
-        resize_keyboard=True
+        keyboard=keyboard_layout, 
+        resize_keyboard=True, # Делает кнопки компактными
+        one_time_keyboard=False # Клавиатура остается на месте
     )
 
+
 def get_chat_kb():
+    """
+    Клавиатура, которая появляется во время активного чата (Reply), для выхода.
+    """
+    button_end = KeyboardButton(text="❌ Завершить чат")
+    keyboard_layout = [[button_end]]
+    
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🎤 Начать чат")],
-            [KeyboardButton(text="❌ Выйти")]
-        ], 
-        resize_keyboard=True
+        keyboard=keyboard_layout,
+        resize_keyboard=True,
+        one_time_keyboard=False
     )
 
 def get_action_inline():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm")],
-            [InlineKeyboardButton(text="🗑 Удалить", callback_data="delete")]
-        ]
-    )
-
+    """
+    Кнопки, встроенные в сообщение с анкетой (Inline), для выбора действия.
+    """
+    # Кнопки с данными для обработки
+    button_write = InlineKeyboardButton(text="💌 Написать ей", callback_data="start_chat")
+    button_next = InlineKeyboardButton(text="⏭ Следующая", callback_data="next_profile")
+    
+    # Собираем в один ряд
+    keyboard_layout = [[button_write, button_next]]
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard_layout)
+    
 # === ЛОГИКА ИИ ===
 def generate_profile():
     try:
