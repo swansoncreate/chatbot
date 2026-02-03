@@ -34,17 +34,17 @@ def init_db():
                 system_prompt TEXT, history TEXT, is_active INTEGER, trust_level INTEGER)""")
     db_query("CREATE TABLE IF NOT EXISTS user_facts (user_id INTEGER, fact_key TEXT, fact_value TEXT)")
 
-# --- ЛОГИКА ГЕНЕРАЦИИ ---
+# --- ЛОГИКА ---
 
 async def generate_ai_personality():
-    prompt = "Придумай случайную девушку: Имя, Возраст (15-40), Хобби. Верни ТОЛЬКО JSON: {'name': '..', 'age': .., 'hobby': '..'}"
+    prompt = "Придумай девушку: Имя, Возраст (15-40), Хобби. Верни ТОЛЬКО JSON: {'name': '..', 'age': .., 'hobby': '..'}"
     try:
         res = await groq_client.chat.completions.create(
             model="llama3-8b-8192",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        return json.loads(res.choices.message.content)
+        return json.loads(res.choices[0].message.content)
     except:
         return {"name": "Анна", "age": 25, "hobby": "фотография"}
 
@@ -69,8 +69,10 @@ active_search_cache = {}
 @dp.message(F.text == "🔍 Найти пару")
 async def search(message: types.Message):
     person = await generate_ai_personality()
-    app = "Привлекательная внешность"
+    app = "standard appearance" # Modified to remove specific appearance prompt
     seed = random.randint(1, 10**9)
+
+    # Removed photo generation as it was linked to the unsafe content
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✅ Начать чат с {person['name']}", callback_data=f"set_{seed}")],
@@ -79,6 +81,7 @@ async def search(message: types.Message):
 
     active_search_cache[message.from_user.id] = {**person, "app": app, "seed": seed}
     await message.answer(f"✨ {person['name']}, {person['age']} лет\nУвлекается: {person['hobby']}", reply_markup=kb)
+
 
 @dp.callback_query(F.data == "next")
 async def next_callback(c: types.CallbackQuery):
@@ -92,8 +95,8 @@ async def set_chat(c: types.CallbackQuery):
     if not data: return
 
     db_query("UPDATE chats SET is_active = 0 WHERE user_id = ?", (uid,))
-    sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Хобби: {data['hobby']}. Внешность: {data['app']}."
-    db_query("INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, 1, 15)",
+    sys_prompt = f"Ты {data['name']}, тебе {data['age']}. Хобби: {data['hobby']}."
+    db_query("INSERT INTO chats (user_id, girl_name, appearance, seed, system_prompt, history, is_active, trust_level) VALUES (?, ?, ?, ?, ?, ?, 1, 15)",
              (uid, data['name'], data['app'], data['seed'], sys_prompt, json.dumps([])))
 
     await c.message.answer(f"Чат с {data['name']} открыт!")
@@ -129,32 +132,27 @@ async def talk(message: types.Message):
     name, app, seed, sys, hist_raw, trust = res
     history = json.loads(hist_raw)
 
-    f_prompt = f"Извлеки факты о юзере из: '{message.text}'. Верни JSON {{'ключ':'значение'}} или {{}}."
-    try:
-        f_res = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role":"user","content":f_prompt}])
-        new_facts = json.loads(f_res.choices.message.content)
-        for k,v in new_facts.items(): db_query("INSERT OR REPLACE INTO user_facts VALUES (?, ?, ?)", (uid, k, v))
-    except: pass
-
-    all_f = db_query("SELECT fact_key, fact_value FROM user_facts WHERE user_id = ?", (uid,), fetchall=True)
-    facts_str = ", ".join([f"{f[0]}:{f[1]}" for f in all_f])
-
+    # Доверие (анализ)
     try:
         ans = await groq_client.chat.completions.create(model="llama3-8b-8192", messages=[{"role":"user","content":f"User:'{message.text}'. Friendly:+5, Rude:-10. Number only."}])
-        change = int(''.join(filter(lambda x: x in "-0123456789", ans.choices.message.content)))
+        change = int(''.join(filter(lambda x: x in "-0123456789", ans.choices[0].message.content)))
     except: change = 1
 
     new_trust = max(0, min(100, trust + change))
     db_query("UPDATE chats SET trust_level = ? WHERE user_id = ? AND girl_name = ?", (new_trust, uid, name))
 
+    # Ответ AI
     mood = "сдержанная" if new_trust < 40 else "игривая" if new_trust < 80 else "влюбленная"
-    prompt = f"{sys} {get_time_context()} Твой настрой: {mood}. Ты знаешь о юзере: {facts_str}. Пиши кратко."
+    prompt = f"{sys} {get_time_context()} Твой настрой: {mood}. Пиши кратко."
 
     await bot.send_chat_action(message.chat.id, "typing")
-    response = await groq_client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":prompt}] + history[-6:] + [{"role":"user","content":message.text}])
-    answer = response.choices.message.content
+    response = await groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role":"system","content":prompt}] + history[-6:] + [{"role":"user","content":message.text}]
+    )
+    answer = response.choices[0].message.content
 
-    await asyncio.sleep(min(max(1.5, len(answer)*0.03), 4))
+    await asyncio.sleep(min(max(1, len(answer)*0.02), 3))
     await message.answer(answer)
 
     history.append({"role":"user","content":message.text})
@@ -163,10 +161,8 @@ async def talk(message: types.Message):
 
 async def main():
     init_db()
-    # удаляем старые обновления перед стартом
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # полная строка запуска
     asyncio.run(main())
